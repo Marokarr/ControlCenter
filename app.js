@@ -150,6 +150,37 @@ const themes = {
     }
 };
 
+// Security utilities
+function escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') return '';
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function sanitizeUrl(url) {
+    if (typeof url !== 'string') return '';
+    const trimmed = url.trim();
+
+    // Block dangerous protocols
+    const dangerous = /^(javascript|data|vbscript|file|about):/i;
+    if (dangerous.test(trimmed)) {
+        console.warn('Blocked dangerous URL protocol:', trimmed);
+        return '';
+    }
+
+    return trimmed;
+}
+
+function validateVolume(vol) {
+    const num = parseFloat(vol);
+    if (isNaN(num)) return 0.7;
+    return Math.max(0, Math.min(1, num));
+}
+
 // State management
 let state = {
     navbarTitle: 'My Homepage',
@@ -191,33 +222,87 @@ function loadData() {
     const savedTheme = localStorage.getItem('homepage-theme');
 
     if (savedTitle) state.navbarTitle = savedTitle;
-    if (savedContainers) state.containers = JSON.parse(savedContainers);
-    if (savedDarkMode) state.darkMode = JSON.parse(savedDarkMode);
+
+    try {
+        if (savedContainers) state.containers = JSON.parse(savedContainers);
+    } catch (e) {
+        console.error('Error parsing containers:', e);
+        state.containers = [];
+    }
+
+    try {
+        if (savedDarkMode) state.darkMode = JSON.parse(savedDarkMode);
+    } catch (e) {
+        console.error('Error parsing darkMode:', e);
+    }
+
     if (savedBgImage) state.bgImage = savedBgImage;
-    if (savedNavbarLinks) state.navbarLinks = JSON.parse(savedNavbarLinks);
-    if (savedFooterLinks) state.footerLinks = JSON.parse(savedFooterLinks);
-    if (savedRadioStations) state.radioStations = JSON.parse(savedRadioStations);
-    if (savedVolume) state.volume = JSON.parse(savedVolume);
+
+    try {
+        if (savedNavbarLinks) state.navbarLinks = JSON.parse(savedNavbarLinks);
+    } catch (e) {
+        console.error('Error parsing navbarLinks:', e);
+        state.navbarLinks = [];
+    }
+
+    try {
+        if (savedFooterLinks) state.footerLinks = JSON.parse(savedFooterLinks);
+    } catch (e) {
+        console.error('Error parsing footerLinks:', e);
+        state.footerLinks = [];
+    }
+
+    try {
+        if (savedRadioStations) state.radioStations = JSON.parse(savedRadioStations);
+    } catch (e) {
+        console.error('Error parsing radioStations:', e);
+        state.radioStations = [];
+    }
+
+    try {
+        if (savedVolume) state.volume = validateVolume(JSON.parse(savedVolume));
+    } catch (e) {
+        console.error('Error parsing volume:', e);
+        state.volume = 0.7;
+    }
+
     if (savedTheme) state.theme = savedTheme;
 
-    if (savedNoteContainers) {
-        state.noteContainers = JSON.parse(savedNoteContainers);
-    } else {
-        // Initialize with one default note container
+    try {
+        if (savedNoteContainers) {
+            state.noteContainers = JSON.parse(savedNoteContainers);
+        } else {
+            // Initialize with one default note container
+            state.noteContainers = [{ title: 'Notes', content: '' }];
+        }
+    } catch (e) {
+        console.error('Error parsing noteContainers:', e);
         state.noteContainers = [{ title: 'Notes', content: '' }];
     }
 
-    if (savedDataContainers) {
-        const parsed = JSON.parse(savedDataContainers);
-        // Migrate old format to new format if needed
-        state.dataContainers = parsed.map(container => {
-            if (container.content !== undefined && !container.rows) {
-                return { title: container.title, rows: [{ name: '', key: '', radio: '' }] };
-            }
-            return container;
-        });
-    } else {
-        // Initialize with 6 default containers
+    try {
+        if (savedDataContainers) {
+            const parsed = JSON.parse(savedDataContainers);
+            // Migrate old format to new format if needed
+            state.dataContainers = parsed.map(container => {
+                if (container.content !== undefined && !container.rows) {
+                    return { title: container.title, rows: [{ name: '', key: '', radio: '' }] };
+                }
+                return container;
+            });
+        } else {
+            // Initialize with 6 default containers
+            state.dataContainers = [
+                { title: 'Group 1', rows: [{ name: '', key: '', radio: '' }] },
+                { title: 'Group 2', rows: [{ name: '', key: '', radio: '' }] },
+                { title: 'Group 3', rows: [{ name: '', key: '', radio: '' }] },
+                { title: 'Group 4', rows: [{ name: '', key: '', radio: '' }] },
+                { title: 'Group 5', rows: [{ name: '', key: '', radio: '' }] },
+                { title: 'Group 6', rows: [{ name: '', key: '', radio: '' }] }
+            ];
+        }
+    } catch (e) {
+        console.error('Error parsing dataContainers:', e);
         state.dataContainers = [
             { title: 'Group 1', rows: [{ name: '', key: '', radio: '' }] },
             { title: 'Group 2', rows: [{ name: '', key: '', radio: '' }] },
@@ -231,7 +316,16 @@ function loadData() {
 
 // Save data to localStorage
 function saveData(key, value) {
-    localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+    try {
+        localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+    } catch (e) {
+        if (e.name === 'QuotaExceededError') {
+            console.error('localStorage quota exceeded. Data could not be saved.');
+            alert('Storage quota exceeded. Please export your data and clear some space.');
+        } else {
+            console.error('Error saving to localStorage:', e);
+        }
+    }
 }
 
 // Update state and re-render
@@ -485,7 +579,10 @@ function applyTheme() {
 
     // Apply background image if set
     if (state.bgImage) {
-        document.body.style.backgroundImage = `url(${state.bgImage})`;
+        const sanitized = sanitizeUrl(state.bgImage);
+        if (sanitized) {
+            document.body.style.backgroundImage = `url(${sanitized})`;
+        }
     }
 }
 
@@ -516,7 +613,12 @@ function updateRadioStation(index, field, value) {
 // Audio player functions
 async function parsePlaylistUrl(url, type) {
     try {
-        const response = await fetch(url);
+        // Add timeout to fetch (10 seconds)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
         const text = await response.text();
 
         if (type === 'm3u') {
@@ -532,7 +634,11 @@ async function parsePlaylistUrl(url, type) {
         }
         return url;
     } catch (error) {
-        console.error('Error parsing playlist:', error);
+        if (error.name === 'AbortError') {
+            console.error('Playlist fetch timed out');
+        } else {
+            console.error('Error parsing playlist:', error);
+        }
         return url;
     }
 }
@@ -578,7 +684,16 @@ async function playStation(index) {
             streamUrl = await parsePlaylistUrl(station.url, station.type);
         }
 
-        audioPlayer.src = streamUrl;
+        // Sanitize URL before using
+        const sanitized = sanitizeUrl(streamUrl);
+        if (!sanitized) {
+            console.error('Invalid stream URL');
+            state.isPlaying = false;
+            render();
+            return;
+        }
+
+        audioPlayer.src = sanitized;
         await audioPlayer.play();
         state.isPlaying = true;
     } catch (error) {
@@ -620,7 +735,7 @@ function stopStation() {
 }
 
 function setVolume(value) {
-    state.volume = parseFloat(value);
+    state.volume = validateVolume(value);
     saveData('homepage-volume', state.volume);
     if (audioPlayer) {
         audioPlayer.volume = state.volume;
@@ -638,11 +753,11 @@ function renderNavbar() {
                             <input
                                 type="text"
                                 id="navbar-title-input"
-                                value="${state.navbarTitle}"
+                                value="${escapeHtml(state.navbarTitle)}"
                                 onblur="setState({ editingTitle: false })"
                             />
                         ` : `
-                            <h1 onclick="setState({ editingTitle: true })">${state.navbarTitle}</h1>
+                            <h1 onclick="setState({ editingTitle: true })">${escapeHtml(state.navbarTitle)}</h1>
                         `}
                     </div>
 
@@ -651,24 +766,24 @@ function renderNavbar() {
                         ${state.navbarLinks.map((link, linkIndex) => `
                             <div class="navbar-link-item">
                                 ${link.url && link.dropdown.length === 0 ? `
-                                    <a href="${link.url}" target="_blank" rel="noopener noreferrer" class="nav-button">
-                                        ${link.title}
+                                    <a href="${escapeHtml(sanitizeUrl(link.url))}" target="_blank" rel="noopener noreferrer" class="nav-button">
+                                        ${escapeHtml(link.title)}
                                     </a>
                                 ` : link.dropdown.length > 0 ? `
                                     <button class="nav-button" onclick="toggleDropdown(${linkIndex})">
-                                        ${link.title} ▼
+                                        ${escapeHtml(link.title)} ▼
                                     </button>
                                     ${state.openDropdown === linkIndex ? `
                                         <div class="navbar-dropdown">
                                             ${link.dropdown.map(item => `
-                                                <a href="${item.url}" target="_blank" rel="noopener noreferrer">
-                                                    ${item.title}
+                                                <a href="${escapeHtml(sanitizeUrl(item.url))}" target="_blank" rel="noopener noreferrer">
+                                                    ${escapeHtml(item.title)}
                                                 </a>
                                             `).join('')}
                                         </div>
                                     ` : ''}
                                 ` : `
-                                    <span class="nav-button">${link.title}</span>
+                                    <span class="nav-button">${escapeHtml(link.title)}</span>
                                 `}
                             </div>
                         `).join('')}
@@ -714,14 +829,14 @@ function renderNavbar() {
                 <div class="mobile-menu">
                     ${state.navbarLinks.map((link) => {
                         if (link.url && link.dropdown.length === 0) {
-                            return `<a href="${link.url}" target="_blank" rel="noopener noreferrer" class="nav-button">${link.title}</a>`;
+                            return `<a href="${escapeHtml(sanitizeUrl(link.url))}" target="_blank" rel="noopener noreferrer" class="nav-button">${escapeHtml(link.title)}</a>`;
                         } else if (link.dropdown.length > 0) {
                             return `
                                 <div class="mobile-dropdown-section">
-                                    <div class="nav-button font-semibold">${link.title}</div>
+                                    <div class="nav-button font-semibold">${escapeHtml(link.title)}</div>
                                     ${link.dropdown.map(item => `
-                                        <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="nav-button ml-4">
-                                            ${item.title}
+                                        <a href="${escapeHtml(sanitizeUrl(item.url))}" target="_blank" rel="noopener noreferrer" class="nav-button ml-4">
+                                            ${escapeHtml(item.title)}
                                         </a>
                                     `).join('')}
                                 </div>
@@ -772,7 +887,7 @@ function renderHomePage() {
                             <input
                                 type="text"
                                 id="bg-image-input"
-                                value="${state.bgImage}"
+                                value="${escapeHtml(state.bgImage)}"
                                 placeholder="Enter image URL or filename (e.g., background.jpg)"
                             />
                             <button class="btn btn-danger" onclick="clearBackground()">Clear</button>
@@ -820,11 +935,11 @@ function renderHomePage() {
                                 <input
                                     type="text"
                                     class="input-title"
-                                    value="${container.title}"
+                                    value="${escapeHtml(container.title)}"
                                     onchange="updateContainerTitle(${containerIndex}, this.value)"
                                 />
                             ` : `
-                                <h3 class="text-xl font-bold">${container.title}</h3>
+                                <h3 class="text-xl font-bold">${escapeHtml(container.title)}</h3>
                             `}
                         </div>
 
@@ -834,7 +949,7 @@ function renderHomePage() {
                                     ${state.editMode ? `
                                         <input
                                             type="text"
-                                            value="${link.title}"
+                                            value="${escapeHtml(link.title)}"
                                             placeholder="Link title"
                                             onchange="updateLink(${containerIndex}, ${linkIndex}, 'title', this.value)"
                                         />
@@ -842,7 +957,7 @@ function renderHomePage() {
                                             <input
                                                 type="text"
                                                 class="flex-1"
-                                                value="${link.url}"
+                                                value="${escapeHtml(link.url)}"
                                                 placeholder="URL"
                                                 onchange="updateLink(${containerIndex}, ${linkIndex}, 'url', this.value)"
                                             />
@@ -851,8 +966,8 @@ function renderHomePage() {
                                             </button>
                                         </div>
                                     ` : `
-                                        <a href="${link.url}" target="_blank" rel="noopener noreferrer" class="link-button">
-                                            ${link.title}
+                                        <a href="${escapeHtml(sanitizeUrl(link.url))}" target="_blank" rel="noopener noreferrer" class="link-button">
+                                            ${escapeHtml(link.title)}
                                         </a>
                                     `}
                                 </div>
@@ -899,11 +1014,11 @@ function renderNotesPage() {
                                     <input
                                         type="text"
                                         class="input-title-lg"
-                                        value="${noteContainer.title}"
+                                        value="${escapeHtml(noteContainer.title)}"
                                         onchange="updateNoteContainerTitle(${index}, this.value)"
                                     />
                                 ` : `
-                                    <h2 class="text-2xl font-bold">${noteContainer.title}</h2>
+                                    <h2 class="text-2xl font-bold">${escapeHtml(noteContainer.title)}</h2>
                                 `}
                             </div>
                             ${state.editMode && state.noteContainers.length > 1 ? `
@@ -917,7 +1032,7 @@ function renderNotesPage() {
                             id="note-textarea-${index}"
                             class="notes-textarea"
                             placeholder="Start typing your notes here..."
-                        >${noteContainer.content}</textarea>
+                        >${escapeHtml(noteContainer.content)}</textarea>
                         <p class="text-sm text-gray mt-2">Changes are saved automatically</p>
                     </div>
                 `).join('')}
@@ -948,11 +1063,11 @@ function renderDataPage() {
                                     <input
                                         type="text"
                                         class="input-title-lg"
-                                        value="${dataContainer.title}"
+                                        value="${escapeHtml(dataContainer.title)}"
                                         onchange="updateDataContainerTitle(${containerIndex}, this.value)"
                                     />
                                 ` : `
-                                    <h2 class="text-2xl font-bold">${dataContainer.title}</h2>
+                                    <h2 class="text-2xl font-bold">${escapeHtml(dataContainer.title)}</h2>
                                 `}
                             </div>
                             ${state.editMode ? `
@@ -978,7 +1093,7 @@ function renderDataPage() {
                                                 <label class="data-field-label">Name</label>
                                                 <input
                                                     type="text"
-                                                    value="${row.name}"
+                                                    value="${escapeHtml(row.name)}"
                                                     placeholder="Enter name..."
                                                     onchange="updateRowField(${containerIndex}, ${rowIndex}, 'name', this.value)"
                                                 />
@@ -987,7 +1102,7 @@ function renderDataPage() {
                                                 <label class="data-field-label">Key</label>
                                                 <input
                                                     type="text"
-                                                    value="${row.key}"
+                                                    value="${escapeHtml(row.key)}"
                                                     placeholder="Enter key..."
                                                     onchange="updateRowField(${containerIndex}, ${rowIndex}, 'key', this.value)"
                                                 />
@@ -996,7 +1111,7 @@ function renderDataPage() {
                                                 <label class="data-field-label">Radio</label>
                                                 <input
                                                     type="text"
-                                                    value="${row.radio}"
+                                                    value="${escapeHtml(row.radio)}"
                                                     placeholder="Enter radio..."
                                                     onchange="updateRowField(${containerIndex}, ${rowIndex}, 'radio', this.value)"
                                                 />
@@ -1074,13 +1189,13 @@ function renderSettingsPage() {
                                 <div class="flex-1 space-y-2">
                                     <input
                                         type="text"
-                                        value="${link.title}"
+                                        value="${escapeHtml(link.title)}"
                                         placeholder="Link Title"
                                         onchange="updateNavbarLink(${linkIndex}, 'title', this.value)"
                                     />
                                     <input
                                         type="text"
-                                        value="${link.url}"
+                                        value="${escapeHtml(link.url)}"
                                         placeholder="URL (leave empty for dropdown only)"
                                         onchange="updateNavbarLink(${linkIndex}, 'url', this.value)"
                                     />
@@ -1102,14 +1217,14 @@ function renderSettingsPage() {
                                     <div class="flex items-start gap-2 mb-2">
                                         <input
                                             type="text"
-                                            value="${item.title}"
+                                            value="${escapeHtml(item.title)}"
                                             placeholder="Item Title"
                                             onchange="updateDropdownItem(${linkIndex}, ${dropdownIndex}, 'title', this.value)"
                                             class="flex-1"
                                         />
                                         <input
                                             type="text"
-                                            value="${item.url}"
+                                            value="${escapeHtml(item.url)}"
                                             placeholder="URL"
                                             onchange="updateDropdownItem(${linkIndex}, ${dropdownIndex}, 'url', this.value)"
                                             class="flex-1"
@@ -1141,14 +1256,14 @@ function renderSettingsPage() {
                         <div class="flex items-start gap-2">
                             <input
                                 type="text"
-                                value="${link.title}"
+                                value="${escapeHtml(link.title)}"
                                 placeholder="Link Title"
                                 onchange="updateFooterLink(${linkIndex}, 'title', this.value)"
                                 class="flex-1"
                             />
                             <input
                                 type="text"
-                                value="${link.url}"
+                                value="${escapeHtml(link.url)}"
                                 placeholder="URL"
                                 onchange="updateFooterLink(${linkIndex}, 'url', this.value)"
                                 class="flex-1"
@@ -1194,14 +1309,14 @@ function renderEntertainmentPage() {
                                         <input
                                             type="text"
                                             class="input-title-lg mb-2"
-                                            value="${station.name}"
+                                            value="${escapeHtml(station.name)}"
                                             placeholder="Station Name"
                                             onchange="updateRadioStation(${index}, 'name', this.value)"
                                         />
                                         <div class="space-y-2">
                                             <input
                                                 type="text"
-                                                value="${station.url}"
+                                                value="${escapeHtml(station.url)}"
                                                 placeholder="Stream URL (.m3u, .pls, or direct stream URL)"
                                                 onchange="updateRadioStation(${index}, 'url', this.value)"
                                             />
@@ -1218,7 +1333,7 @@ function renderEntertainmentPage() {
                                             </div>
                                         </div>
                                     ` : `
-                                        <h2 class="text-2xl font-bold mb-4">${station.name}</h2>
+                                        <h2 class="text-2xl font-bold mb-4">${escapeHtml(station.name)}</h2>
                                     `}
 
                                     ${!state.editMode ? `
@@ -1345,54 +1460,60 @@ function importData() {
             try {
                 const importedData = JSON.parse(event.target.result);
 
+                // Basic type validation
+                if (typeof importedData !== 'object' || importedData === null) {
+                    throw new Error('Invalid data format');
+                }
+
                 // Validate and import data
-                if (importedData.navbarTitle) {
+                if (importedData.navbarTitle && typeof importedData.navbarTitle === 'string') {
                     state.navbarTitle = importedData.navbarTitle;
                     saveData('homepage-navbar-title', state.navbarTitle);
                     document.title = state.navbarTitle;
                 }
-                if (importedData.containers) {
+                if (importedData.containers && Array.isArray(importedData.containers)) {
                     state.containers = importedData.containers;
                     saveData('homepage-containers', state.containers);
                 }
-                if (importedData.noteContainers) {
+                if (importedData.noteContainers && Array.isArray(importedData.noteContainers)) {
                     state.noteContainers = importedData.noteContainers;
                     saveData('homepage-note-containers', state.noteContainers);
                 }
-                if (importedData.dataContainers) {
+                if (importedData.dataContainers && Array.isArray(importedData.dataContainers)) {
                     state.dataContainers = importedData.dataContainers;
                     saveData('homepage-data-containers', state.dataContainers);
                 }
                 if (importedData.bgImage !== undefined) {
                     state.bgImage = importedData.bgImage;
                     saveData('homepage-bg-image', state.bgImage);
-                    document.body.style.backgroundImage = state.bgImage ? `url(${state.bgImage})` : '';
+                    const sanitized = sanitizeUrl(state.bgImage);
+                    document.body.style.backgroundImage = sanitized ? `url(${sanitized})` : '';
                 }
                 if (importedData.darkMode !== undefined) {
                     state.darkMode = importedData.darkMode;
                     saveData('homepage-darkmode', state.darkMode);
                     applyDarkMode();
                 }
-                if (importedData.navbarLinks) {
+                if (importedData.navbarLinks && Array.isArray(importedData.navbarLinks)) {
                     state.navbarLinks = importedData.navbarLinks;
                     saveData('homepage-navbar-links', state.navbarLinks);
                 }
-                if (importedData.footerLinks) {
+                if (importedData.footerLinks && Array.isArray(importedData.footerLinks)) {
                     state.footerLinks = importedData.footerLinks;
                     saveData('homepage-footer-links', state.footerLinks);
                 }
-                if (importedData.radioStations) {
+                if (importedData.radioStations && Array.isArray(importedData.radioStations)) {
                     state.radioStations = importedData.radioStations;
                     saveData('homepage-radio-stations', state.radioStations);
                 }
-                if (importedData.volume !== undefined) {
-                    state.volume = importedData.volume;
+                if (importedData.volume !== undefined && typeof importedData.volume === 'number') {
+                    state.volume = validateVolume(importedData.volume);
                     saveData('homepage-volume', state.volume);
                     if (audioPlayer) {
                         audioPlayer.volume = state.volume;
                     }
                 }
-                if (importedData.theme) {
+                if (importedData.theme && typeof importedData.theme === 'string') {
                     state.theme = importedData.theme;
                     saveData('homepage-theme', state.theme);
                 }
@@ -1436,8 +1557,8 @@ function render() {
             <div class="container footer-content">
                 <div class="footer-links">
                     ${state.footerLinks.map(link => `
-                        <a href="${link.url}" target="_blank" rel="noopener noreferrer" class="footer-link">
-                            ${link.title}
+                        <a href="${escapeHtml(sanitizeUrl(link.url))}" target="_blank" rel="noopener noreferrer" class="footer-link">
+                            ${escapeHtml(link.title)}
                         </a>
                     `).join('')}
                     ${state.footerLinks.length > 0 ? '<span class="footer-link">|</span>' : ''}
@@ -1476,7 +1597,8 @@ function addEventListeners() {
         bgInput.addEventListener('input', (e) => {
             state.bgImage = e.target.value;
             saveData('homepage-bg-image', state.bgImage);
-            document.body.style.backgroundImage = state.bgImage ? `url(${state.bgImage})` : '';
+            const sanitized = sanitizeUrl(state.bgImage);
+            document.body.style.backgroundImage = sanitized ? `url(${sanitized})` : '';
         });
     }
 
